@@ -18,20 +18,15 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "dma.h"
-#include "usart.h"
-#include "gpio.h"
-
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "bsp_usart.h"
-#include "math.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-#define PI 3.14159265358979323846
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -45,6 +40,7 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+TIM_HandleTypeDef htim1;
 
 /* USER CODE BEGIN PV */
 
@@ -52,77 +48,15 @@
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
+void MX_GPIO_Init(void);
+void MX_TIM1_Init(void);
 /* USER CODE BEGIN PFP */
-Struct_UART_Manage_Object UART1_Manage_Object = {0};
-
-
-// UART通信发送缓冲区
-uint8_t UART1_Tx_Data[256]={0xAA};
-
-
-
-/**
- * @brief 初始化UART
- *
- * @param huart UART编号
- * @param Rx_Buffer 接收缓冲区
- * @param Rx_Buffer_Size 接收缓冲区长度
- * @param Callback_Function 处理回调函数
- */
-void Uart_Init(UART_HandleTypeDef *huart, uint8_t *Rx_Buffer, uint16_t Rx_Buffer_Size, UART_Call_Back Callback_Function)
-{
-    if (huart->Instance == USART1)
-    {
-        UART1_Manage_Object.Rx_Buffer = Rx_Buffer;
-        UART1_Manage_Object.Rx_Buffer_Size = Rx_Buffer_Size;
-        UART1_Manage_Object.UART_Handler = huart;
-        UART1_Manage_Object.Callback_Function = Callback_Function;
-    }
-    HAL_UARTEx_ReceiveToIdle_DMA(huart, Rx_Buffer, Rx_Buffer_Size);
-    //让usart进入准备阶段，允许下一次接收 有个标志位认为他收完了 
-    //数据都在Rx_Buffer
-}
-
-volatile uint8_t uart10_send_done = 1;
-
-/**
- * @brief 发送数据帧
- *
- * @param huart UART编号
- * @param Data 被发送的数据指针
- * @param Length 长度
- */
-uint8_t UART_Send_Data(UART_HandleTypeDef *huart, uint8_t *Data, uint16_t Length)
-{
-    HAL_UART_Transmit_DMA(huart, Data, Length);
-}
-
-/**
- * @brief HAL库UART接收DMA空闲中断
- *
- * @param huart UART编号
- * @param Size 长度
- */
-void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
-{
-    //选择回调函数
-    if (huart->Instance == USART1)
-    {
-        UART1_Manage_Object.Callback_Function(UART1_Manage_Object.Rx_Buffer, UART1_Manage_Object.Rx_Buffer_Size);
-        HAL_UARTEx_ReceiveToIdle_DMA(huart, UART1_Manage_Object.Rx_Buffer, UART1_Manage_Object.Rx_Buffer_Size);
-        //重新进入准备
-    }
-}
-
-
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-uint8_t i=0,RxBuffer[256];
-float sin_val=0,x=0,cos_val=0,LED_Flag=0;
-void Uart_SerialPlot_Callback(uint8_t* Buffer, uint16_t Size);
+uint8_t flag=0,mode=1,time=0;
 /* USER CODE END 0 */
 
 /**
@@ -142,6 +76,7 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
+	
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -153,11 +88,9 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_DMA_Init();
-  MX_USART1_UART_Init();
-  Uart_Init(&huart1, RxBuffer, 5,Uart_SerialPlot_Callback);
+  MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
-  
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -165,24 +98,38 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-	x=x+2*PI/2000;
-	sin_val=sin(x);
-	cos_val=cos(x);
-	LED_Flag=(HAL_GPIO_ReadPin(LED_GREEN_GPIO_Port,LED_GREEN_Pin)+1)%2;
-	for (i=0;i<4;i++)
-	{
-      UART1_Tx_Data[i+1]=*((char*)(&sin_val)+i);
-	}
-	for (i=0;i<4;i++)
-	{
-	  UART1_Tx_Data[i+5]=*((char*)(&cos_val)+i);
-	}
-	for (i=0;i<4;i++)
-	{
-	  UART1_Tx_Data[i+9]=*((char*)(&LED_Flag)+i);
-	}
-	HAL_Delay(0);
-	UART_Send_Data(&huart1,UART1_Tx_Data,13);
+     if (((flag==1) && mode==0) || ((time==1) && mode==1))
+	  {
+	 	HAL_GPIO_WritePin(LED_GREEN_GPIO_Port,LED_GREEN_Pin,GPIO_PIN_RESET);
+		HAL_GPIO_WritePin(LED_BLUE_GPIO_Port,LED_BLUE_Pin,GPIO_PIN_SET);
+		HAL_GPIO_WritePin(LED_RED_GPIO_Port,LED_RED_Pin,GPIO_PIN_SET);
+		flag%=4;
+		time%=4;
+	  }
+	  else if (((flag==2) && mode==0) || ((time==2) && mode==1))
+	  {
+		HAL_GPIO_WritePin(LED_GREEN_GPIO_Port,LED_GREEN_Pin,GPIO_PIN_SET);
+		HAL_GPIO_WritePin(LED_BLUE_GPIO_Port,LED_BLUE_Pin,GPIO_PIN_RESET);
+		HAL_GPIO_WritePin(LED_RED_GPIO_Port,LED_RED_Pin,GPIO_PIN_SET);
+		flag%=4;
+		time%=4;
+	  }
+	  else if (((flag==3) && mode==0) || ((time==3) && mode==1))
+	  {
+        HAL_GPIO_WritePin(LED_GREEN_GPIO_Port,LED_GREEN_Pin,GPIO_PIN_SET);
+		HAL_GPIO_WritePin(LED_BLUE_GPIO_Port,LED_BLUE_Pin,GPIO_PIN_SET);
+		HAL_GPIO_WritePin(LED_RED_GPIO_Port,LED_RED_Pin,GPIO_PIN_RESET);
+		flag%=4;
+		time%=4;
+	  }
+	  else 
+	  {
+		HAL_GPIO_WritePin(LED_GREEN_GPIO_Port,LED_GREEN_Pin,GPIO_PIN_SET);
+		HAL_GPIO_WritePin(LED_BLUE_GPIO_Port,LED_BLUE_Pin,GPIO_PIN_SET);
+		HAL_GPIO_WritePin(LED_RED_GPIO_Port,LED_RED_Pin,GPIO_PIN_SET);
+		flag%=4;
+		time%=4;
+	  }
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -227,19 +174,107 @@ void SystemClock_Config(void)
   }
 }
 
-/* USER CODE BEGIN 4 */
-void Uart_SerialPlot_Callback(uint8_t* Buffer, uint16_t Size)
+/**
+  * @brief TIM1 Initialization Function
+  * @param None
+  * @retval None
+  */
+void MX_TIM1_Init(void)
 {
-  if (RxBuffer[0]=='1')
+
+  /* USER CODE BEGIN TIM1_Init 0 */
+
+  /* USER CODE END TIM1_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM1_Init 1 */
+
+  /* USER CODE END TIM1_Init 1 */
+  htim1.Instance = TIM1;
+  htim1.Init.Prescaler = 7199;
+  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim1.Init.Period = 9999;
+  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim1.Init.RepetitionCounter = 0;
+  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
   {
-    HAL_GPIO_WritePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin, GPIO_PIN_RESET);
+    Error_Handler();
   }
-  else if (RxBuffer[0]=='0')
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
   {
-	HAL_GPIO_WritePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin, GPIO_PIN_SET);
+    Error_Handler();
   }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM1_Init 2 */
+   HAL_TIM_Base_Start_IT(&htim1);
+  /* USER CODE END TIM1_Init 2 */
+
+}
+
+/**
+  * @brief GPIO Initialization Function
+  * @param None
+  * @retval None
+  */
+void MX_GPIO_Init(void)
+{
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+  /* USER CODE BEGIN MX_GPIO_Init_1 */
+
+  /* USER CODE END MX_GPIO_Init_1 */
+
+  /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, LED_GREEN_Pin|LED_BLUE_Pin|LED_RED_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : KEY1_Pin */
+  GPIO_InitStruct.Pin = KEY1_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(KEY1_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : LED_GREEN_Pin LED_BLUE_Pin LED_RED_Pin */
+  GPIO_InitStruct.Pin = LED_GREEN_Pin|LED_BLUE_Pin|LED_RED_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /* USER CODE BEGIN MX_GPIO_Init_2 */
+  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
+  /* USER CODE END MX_GPIO_Init_2 */
+}
+
+/* USER CODE BEGIN 4 */
+void TIM1_UP_IRQHandler(void)
+{
+  /* USER CODE BEGIN TIM1_UP_IRQn 0 */
+
+  /* USER CODE END TIM1_UP_IRQn 0 */
+  HAL_TIM_IRQHandler(&htim1);
+  /* USER CODE BEGIN TIM1_UP_IRQn 1 */
+  time++;
+  /* USER CODE END TIM1_UP_IRQn 1 */
 }
 /* USER CODE END 4 */
+
+void EXTI0_IRQHandler(void)
+{
+  HAL_GPIO_EXTI_IRQHandler(KEY1_Pin);
+  flag++;
+}
 
 /**
   * @brief  This function is executed in case of error occurrence.
